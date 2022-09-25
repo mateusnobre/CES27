@@ -1,17 +1,36 @@
 package main
 
-import "net"
+import (
+	"fmt"
+	"net"
+	"os"
+)
+
+/* A simple function to verify error */
+func CheckError(err error) {
+	if err != nil {
+		fmt.Println("Error: ", err)
+		os.Exit(0)
+	}
+}
 
 func main() {
-	Address, err := net.ResolveUDPAddr("udp", ":10001")
+	ServerAddr, err := net.ResolveUDPAddr("udp", ":10001")
 	CheckError(err)
-	Connection, err := net.ListenUDP("udp", Address)
+
+	ServerConn, err := net.ListenUDP("udp", ServerAddr)
 	CheckError(err)
-	defer Connection.Close()
+	defer ServerConn.Close()
+
+	buf := make([]byte, 4096)
 	for {
-		//Loop infinito para receber mensagem e escrever todo
-		//conteúdo (processo que enviou, relógio recebido e texto)
-		//na tela
-		//FALTA FAZER
+		n, _, err := ServerConn.ReadFromUDP(buf)
+		if string(buf[0:n]) == "x" {
+			fmt.Println("A process is trying to access the Critical Section")
+		}
+		fmt.Println("Received ", string(buf[0:n]))
+		if err != nil {
+			fmt.Println("Error: ", err)
+		}
 	}
 }

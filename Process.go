@@ -136,6 +136,9 @@ func DoClientJob(CurrentProcess *CurrentProcess, CurrentProcessPort int64, ConnW
 		time.Sleep(TIMEOUT * time.Second)
 		CurrentProcess.state = ProcessStateReleased
 		fmt.Println(Purple+"Releasing CS at time", CurrentProcess.clock.count, Reset)
+		CurrentProcess.receivedReplyCount.mutex.Lock()
+		CurrentProcess.receivedReplyCount.count = 0
+		CurrentProcess.receivedReplyCount.mutex.Unlock()
 		for _, replyProcessId := range CurrentProcess.replyQueue {
 			replyProcess(CurrentProcess, replyProcessId)
 		}

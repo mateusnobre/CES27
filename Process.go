@@ -5,11 +5,36 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+var Reset = "\033[0m"
+var Red = "\033[31m"
+var Green = "\033[32m"
+var Yellow = "\033[33m"
+var Blue = "\033[34m"
+var Purple = "\033[35m"
+var Cyan = "\033[36m"
+var Gray = "\033[37m"
+var White = "\033[97m"
+
+func initColors() {
+	if runtime.GOOS == "windows" {
+		Reset = ""
+		Red = ""
+		Green = ""
+		Yellow = ""
+		Blue = ""
+		Purple = ""
+		Cyan = ""
+		Gray = ""
+		White = ""
+	}
+}
 
 const TIMEOUT = 5
 
@@ -71,7 +96,7 @@ func IncrementCounter(counter *CounterWithMutex) {
 
 func sendRequestsToAccessCS(CurrentProcess *CurrentProcess) {
 	for _, linkedProcess := range CurrentProcess.linkedProcesses {
-		fmt.Println(fmt.Sprintf("Send request from %d to %d, to port %d from %d", CurrentProcess.id, linkedProcess.id, linkedProcess.address.Port, CurrentProcess.address.Port))
+		fmt.Println(Red + fmt.Sprintf("Sent request to access CS from %d to %d, to port %d from %d, on time %d", CurrentProcess.id, linkedProcess.id, linkedProcess.address.Port, CurrentProcess.address.Port, CurrentProcess.clock.count) + Reset)
 		buf := []byte(fmt.Sprintf("Requesting CS at %d to %d process", CurrentProcess.clock.count, CurrentProcess.id))
 		_, err := linkedProcess.connection.Write(buf)
 		CheckError(err)
@@ -81,7 +106,7 @@ func sendRequestsToAccessCS(CurrentProcess *CurrentProcess) {
 func replyProcess(CurrentProcess *CurrentProcess, processId int64) {
 	for _, linkedProcess := range CurrentProcess.linkedProcesses {
 		if linkedProcess.id == processId {
-			fmt.Println(fmt.Sprintf("Send reply from %d to %d, to port %d from %d", CurrentProcess.id, linkedProcess.id, linkedProcess.address.Port, CurrentProcess.address.Port))
+			fmt.Println(Green + fmt.Sprintf("Sent reply from %d to %d, to port %d from %d on time %d", CurrentProcess.id, linkedProcess.id, linkedProcess.address.Port, CurrentProcess.address.Port, CurrentProcess.clock.count) + Reset)
 			buf := []byte(fmt.Sprintf("Replying CS at %d to %d and port %d ", CurrentProcess.clock.count, processId, linkedProcess.address.Port))
 			_, err := linkedProcess.connection.Write(buf)
 			CheckError(err)
@@ -91,29 +116,29 @@ func replyProcess(CurrentProcess *CurrentProcess, processId int64) {
 
 func DoClientJob(CurrentProcess *CurrentProcess, CurrentProcessPort int64, ConnWithSharedResource *net.UDPConn) {
 	if CurrentProcess.state == ProcessStateHeld {
-		fmt.Println("IGNORED! Process", CurrentProcess.id, "is already on CS")
+		fmt.Println(Yellow+"IGNORED! Process", CurrentProcess.id, "is already on CS"+Reset)
 	} else if CurrentProcess.state == ProcessStateWanted {
-		fmt.Println("IGNORED! Process", CurrentProcess.id, "is waiting to enter CS")
+		fmt.Println(Yellow+"IGNORED! Process", CurrentProcess.id, "is waiting to enter CS"+Reset)
 	} else {
-		fmt.Println("Accessing Critical Section")
+		fmt.Println(Purple+"Requesting Access to CS at time", CurrentProcess.clock.count, Reset)
 		CurrentProcess.state = ProcessStateWanted
 		IncrementCounter(&CurrentProcess.clock)
 		sendRequestsToAccessCS(CurrentProcess)
-		fmt.Println("Waiting for replies...")
+		fmt.Println(Purple+"Waiting for replies... at time", CurrentProcess.clock.count, Reset)
 		for CurrentProcess.receivedReplyCount.count < len(CurrentProcess.linkedProcesses) {
 		}
 		CurrentProcess.state = ProcessStateHeld
-		fmt.Println("Acessing CS")
+		fmt.Println(Purple+"Acessing CS at time", CurrentProcess.clock.count, Reset)
 		IncrementCounter(&CurrentProcess.clock)
 		buf := []byte(fmt.Sprintf("Acessing CS at %d on port %d", CurrentProcess.clock.count, CurrentProcessPort))
 		_, err := ConnWithSharedResource.Write(buf)
 		CheckError(err)
 		time.Sleep(TIMEOUT * time.Second)
 		CurrentProcess.state = ProcessStateReleased
+		fmt.Println(Purple+"Releasing CS at time", CurrentProcess.clock.count, Reset)
 		for _, replyProcessId := range CurrentProcess.replyQueue {
 			replyProcess(CurrentProcess, replyProcessId)
 		}
-		fmt.Println("Releasing CS")
 	}
 }
 
@@ -140,23 +165,28 @@ func DoServerJob(CurrentProcess *CurrentProcess) {
 		CheckError(err)
 		requestProcessId, err := strconv.ParseInt(words[5], 10, 64)
 		CheckError(err)
-		fmt.Println("Received", requestType, "from", requestProcessId, "at", requestTime)
+		fmt.Println(White, "Received", requestType, "from", requestProcessId, "at", requestTime, Reset)
 		if requestType == "Requesting" {
 			if CurrentProcess.state == ProcessStateHeld || (CurrentProcess.state == ProcessStateWanted && CurrentProcess.clock.count < requestTime) {
+				if CurrentProcess.state == ProcessStateWanted && CurrentProcess.clock.count < requestTime {
+					fmt.Println(Cyan + "There is more than 1 process on the queue to access the CS" + Reset)
+				}
+
 				CurrentProcess.replyQueue = append(CurrentProcess.replyQueue, requestProcessId)
-				fmt.Println("Queueing request at", CurrentProcess.clock.count, "from", requestProcessId)
+				fmt.Println(White, "Queueing request at", CurrentProcess.clock.count, "from", requestProcessId, Reset)
 			} else {
 				replyProcess(CurrentProcess, requestProcessId)
 			}
 		} else if requestType == "Replying" {
 			IncrementCounter(&CurrentProcess.receivedReplyCount)
-			fmt.Println("Increment Reply Count")
+			fmt.Println(White, "Increment Reply Count at time", CurrentProcess.clock.count, Reset)
 		}
 		updateClock(CurrentProcess, requestTime)
 	}
 }
 
 func main() {
+	initColors()
 	argsWithoutProg := os.Args[1:]
 	CurrentProcessId, err := strconv.ParseInt(argsWithoutProg[0], 10, 64)
 	CheckError(err)
@@ -219,7 +249,7 @@ func main() {
 		if msg == "x" {
 			go DoClientJob(&CurrentProcess, CurrentProcessPort, ConnWithSharedResource)
 		} else if msg == string(CurrentProcessId) {
-			fmt.Println("Increment Clock\n")
+			fmt.Println("Increment Clock At Receiving ID")
 			IncrementCounter(&CurrentProcess.clock)
 		}
 		buf := []byte(fmt.Sprintf("%s at time %d on port %d", msg, CurrentProcess.clock.count, CurrentProcessPort))
